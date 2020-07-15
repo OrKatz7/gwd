@@ -526,7 +526,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         elif ret >0.3 and self.mosaic:
             img, labels = load_mixup(self, index)
             shapes = None
-        elif ret >1.2 and self.mosaic and False:
+        elif ret >0.2 and self.mosaic and False:
             img0, labels0 = load_mosaic(self, index,mixup=True)
             img1, labels1 = load_mosaic(self, np.random.randint(self.__len__()-1),mixup=True)
             img1 = img1.astype(float)/255
