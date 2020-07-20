@@ -117,7 +117,7 @@ def get_train_transforms():
         bbox_params=A.BboxParams(
             format='pascal_voc',
             min_area=0, 
-            min_visibility=0,
+            min_visibility=0.0,
             label_fields=['labels']
         )
     )
@@ -135,7 +135,7 @@ def get_mosaic_transforms():
         bbox_params=A.BboxParams(
             format='pascal_voc',
             min_area=0, 
-            min_visibility=0,
+            min_visibility=0.0,
             label_fields=['labels']
         )
     )
