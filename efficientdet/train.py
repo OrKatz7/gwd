@@ -32,9 +32,6 @@ class Config:
     n_epochs = 50
     optimizer = torch.optim.SGD #torch.optim.AdamW
     lr = 0.005
-    folder = '../effdet7_fold{}'.format(fold_number)
-    if not os.path.exists(folder):
-        os.makedirs(folder)
     verbose = True
     verbose_step = 1
     net_name = 'tf_efficientdet_d7'
@@ -51,7 +48,10 @@ if __name__=="__main__":
     config = Config()
     config.fold_number = opt.fold
     config.resume = opt.resume
-    
+    folder = '../effdet7_fold{}'.format(config.fold_number)
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    config.folder = folder
     marking,df_folds = train_utils.get_k_fols(config)
     
     train_dataset = datasets_utils.train_wheat(image_ids=df_folds[df_folds['fold'] != config.fold_number].index.values,
