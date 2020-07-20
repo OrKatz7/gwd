@@ -1,11 +1,14 @@
 
 
+import cv2
+import random
+import numpy as np
 import torch
+from torch.utils.data import Dataset
 import os
 from datetime import datetime
 import time
 import random
-import cv2
 import pandas as pd
 import numpy as np
 import albumentations as A
@@ -111,13 +114,14 @@ def get_train_transforms():
             A.VerticalFlip(p=0.5),
             A.Resize(height=1024, width=1024, p=1),
             A.Cutout(num_holes=4, max_h_size=32, max_w_size=48, fill_value=0, p=0.5),
+            A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225), max_pixel_value=255.0, always_apply=False, p=1.0),
             ToTensorV2(p=1.0),
         ], 
         p=1.0, 
         bbox_params=A.BboxParams(
             format='pascal_voc',
             min_area=0, 
-            min_visibility=0.0,
+            min_visibility=0,
             label_fields=['labels']
         )
     )
@@ -144,6 +148,7 @@ def get_valid_transforms():
     return A.Compose(
         [
             A.Resize(height=1024, width=1024, p=1.0),
+            A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225), max_pixel_value=255.0, always_apply=False, p=1.0),
             ToTensorV2(p=1.0),
         ], 
         p=1.0, 
@@ -184,17 +189,10 @@ class DatasetRetrieverTest(Dataset):
         target['image_id'] = torch.tensor([index])
 
         if self.transforms:
-            for i in range(10):
-                sample = self.transforms(**{
-                    'image': image,
-                    'bboxes': target['boxes'],
-                    'labels': labels
-                })
-                if len(sample['bboxes']) > 0:
-                    image = sample['image']
-                    target['boxes'] = torch.stack(tuple(map(torch.tensor, zip(*sample['bboxes'])))).permute(1, 0)
-#                     target['boxes'][:,[0,1,2,3]] = target['boxes'][:,[1,0,3,2]]  #yxyx: be warning
-                    break
+            sample = self.transforms(**{'image': image,'bboxes': target['boxes'],'labels': labels})
+            image = sample['image']
+            target['boxes'] = torch.stack(tuple(map(torch.tensor, zip(*sample['bboxes'])))).permute(1, 0)
+#           target['boxes'][:,[0,1,2,3]] = target['boxes'][:,[1,0,3,2]]  #yxyx: be warning
 
         return image, target, image_id
 
@@ -205,18 +203,13 @@ class DatasetRetrieverTest(Dataset):
         image_id = self.image_ids[index]
         image = cv2.imread(f'{self.TRAIN_ROOT_PATH}/{image_id}.jpg', cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32)
-        image /= 255.0
         records = self.marking[self.marking['image_id'] == image_id]
         boxes = records[['x', 'y', 'w', 'h']].values
         boxes[:, 2] = boxes[:, 0] + boxes[:, 2]
         boxes[:, 3] = boxes[:, 1] + boxes[:, 3]
         return image, boxes
 
-import cv2
-import random
-import numpy as np
-import torch
-from torch.utils.data import Dataset
+
 
 
 class train_wheat(Dataset):
@@ -243,18 +236,16 @@ class train_wheat(Dataset):
             else:
                 image, boxes = self.load_mixup_image_and_boxes(index)
 
-        # there is only one class
-        image*=255
         image = image.astype(np.uint8)
-        if random.random() < 0.7:
+        if random.random() < 0.5:
             image, boxes = random_affine(image, boxes,
-                                      degrees=0,
-                                      translate=0,
-                                      scale=0.45,
-                                      shear=0)
+                                          degrees=0,
+                                          translate=0,
+                                          scale=0.45,
+                                          shear=0)
         if random.random() < 0.5:
             augment_hsv(image, hgain=0.014, sgain=0.68, vgain=0.36)
-        image = image.astype(np.float32)/255
+        image = image.astype(np.float32)
         labels = torch.ones((boxes.shape[0],), dtype=torch.int64)
         target = {}
         target['boxes'] = boxes
@@ -263,18 +254,11 @@ class train_wheat(Dataset):
 
 
         if self.transforms:
-            for i in range(10):
-                sample = self.transforms(**{
-                    'image': image,
-                    'bboxes': target['boxes'],
-                    'labels': labels
-                })
-                if len(sample['bboxes']) > 0:
-                    image = sample['image']
-                    target['boxes'] = torch.stack(tuple(map(torch.tensor, zip(*sample['bboxes'])))).permute(1, 0)
-                    target['boxes'][:,[0,1,2,3]] = target['boxes'][:,[1,0,3,2]]  #yxyx: be warning
-                    break
 
+            sample = self.transforms(**{'image': image,'bboxes': target['boxes'],'labels': labels})
+            image = sample['image']
+            target['boxes'] = torch.stack(tuple(map(torch.tensor, zip(*sample['bboxes'])))).permute(1, 0)
+            target['boxes'][:,[0,1,2,3]] = target['boxes'][:,[1,0,3,2]]  #yxyx: be warning
         return image, target, image_id
 
     def __len__(self) -> int:
@@ -283,8 +267,7 @@ class train_wheat(Dataset):
     def load_image_and_boxes(self, index):
         image_id = self.image_ids[index]
         image = cv2.imread(f'{self.root}/{image_id}.jpg', cv2.IMREAD_COLOR)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32)
-        image /= 255.0
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32)/255
         records = self.marking[self.marking['image_id'] == image_id]
         boxes = records[['x', 'y', 'w', 'h']].values
         boxes[:, 2] = boxes[:, 0] + boxes[:, 2]
@@ -296,7 +279,7 @@ class train_wheat(Dataset):
                         'bboxes': boxes,
                         'labels': labels
                     })
-            image = sample['image']
+            image = sample['image']*255
             boxes = torch.stack(tuple(map(torch.tensor, zip(*sample['bboxes'])))).permute(1, 0).numpy()
         return image, boxes
 
