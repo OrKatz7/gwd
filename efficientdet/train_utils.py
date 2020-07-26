@@ -171,7 +171,7 @@ class Fitter:
             t = time.time()
             summary_loss = self.validation(validation_loader)
 
-            self.log(f'[RESULT]: Val. Epoch: {self.epoch}, summary_loss: {summary_loss.avg:.5f}, time: {(time.time() - t):.5f}')
+            self.log(f'[RESULT]: Val. Epoch: {self.epoch}, summary_score: {summary_loss.avg:.5f}, time: {(time.time() - t):.5f}')
             if summary_loss.avg > self.best_summary_loss:
                 self.best_summary_loss = summary_loss.avg
                 self.model.eval()
