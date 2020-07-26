@@ -28,16 +28,21 @@ class Config:
     csv = '../data/train.csv'
     fold_number = 0
     num_workers = 8
-    batch_size = 4
-    n_epochs = 50
+    batch_size = 8
+    grad_step = 1
+    n_epochs = 80
     optimizer = torch.optim.SGD #torch.optim.AdamW
     lr = 0.005
+    SchedulerClass = torch.optim.lr_scheduler.CosineAnnealingLR
+    scheduler_params = dict(
+        T_max=500,
+        )
     verbose = True
     verbose_step = 1
+    TrainMultiScale = [1.0]#[1.0,0.5,0.625,0.75,0.875]#
     net_name = 'tf_efficientdet_d7'
     checkpoint_name = '../efficientdet/tf_efficientdet_d7_53-6d1d7a95.pth'
-    lf = lambda x: (((1 + math.cos(x * math.pi / 25)) / 2) ** 1.0) * 0.9 + 0.1
-    scheduler = torch.optim.lr_scheduler.LambdaLR
+    CocoFormat=False
 
 class data_config:
     real = 0.5
