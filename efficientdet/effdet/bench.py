@@ -128,7 +128,7 @@ class DetBenchTrainMultiScaleV2(nn.Module):
         self.anchors = Anchors(
                 config.min_level, config.max_level,
                 config.num_scales, config.aspect_ratios,
-                config.anchor_scale, int(config.image_size*m))
+                config.anchor_scale, int(config.image_size))
         self.anchor_labeler = (AnchorLabeler(self.anchors[i], config.num_classes, match_threshold=0.5))
         self.loss_fn = DetectionLoss(self.config)
 
