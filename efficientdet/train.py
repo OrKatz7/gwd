@@ -29,7 +29,7 @@ class Config:
     fold_number = 0
     num_workers = 8
     batch_size = 8
-    grad_step = 64//batch_size
+    grad_step = 16//batch_size
     n_epochs = 80
     optimizer = torch.optim.SGD #torch.optim.AdamW
     lr = 0.01
