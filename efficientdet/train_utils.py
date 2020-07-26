@@ -54,7 +54,7 @@ def get_net_multiscle(type_net='tf_efficientdet_d7',checkpoint_name='tf_efficien
     if resume:
         checkpoint = torch.load(resume)
         net.load_state_dict(checkpoint['model_state_dict'])
-    return DetBenchTrainMultiScale(net, config,multiscale=multiScale)
+    return DetBenchTrainMultiScale(net, config,multiscale=multiScale) #DetBenchTrainMultiScaleV2
 
 
 def collate_fn(batch):
