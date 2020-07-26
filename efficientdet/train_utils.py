@@ -1,6 +1,7 @@
 import sys
 from tqdm.auto import tqdm
 from test_utils import *
+
 import torch
 import os
 from datetime import datetime
@@ -18,12 +19,13 @@ from torch.utils.data.sampler import SequentialSampler, RandomSampler
 from glob import glob
 import math
 import torch_utils
+from torch.nn.utils import clip_grad_norm_
 
 import warnings
 
 warnings.filterwarnings("ignore")
 from torch.nn import DataParallel
-from effdet import get_efficientdet_config, EfficientDet, DetBenchTrain
+from effdet import get_efficientdet_config, EfficientDet, DetBenchTrain,DetBenchTrainMultiScale
 from effdet.efficientdet import HeadNet
 
 def get_net(type_net='tf_efficientdet_d7',checkpoint_name='tf_efficientdet_d7_53-6d1d7a95.pth',resume=None):
@@ -32,13 +34,28 @@ def get_net(type_net='tf_efficientdet_d7',checkpoint_name='tf_efficientdet_d7_53
     checkpoint = torch.load(checkpoint_name)
     net.load_state_dict(checkpoint)
     config.num_classes = 1
-    config.image_size = 1024
+    config.image_size = 1024 #
     net.class_net = HeadNet(config, num_outputs=config.num_classes, norm_kwargs=dict(eps=.001, momentum=.01))
     net = DataParallel(net)
     if resume:
         checkpoint = torch.load(resume)
         net.load_state_dict(checkpoint['model_state_dict'])
     return DetBenchTrain(net, config)
+
+def get_net_multiscle(type_net='tf_efficientdet_d7',checkpoint_name='tf_efficientdet_d7_53-6d1d7a95.pth',resume=None,multiScale=[1.0,1.1,0.8]):
+    config = get_efficientdet_config(type_net)
+    net = EfficientDet(config, pretrained_backbone=False)
+    checkpoint = torch.load(checkpoint_name)
+    net.load_state_dict(checkpoint)
+    config.num_classes = 1
+    config.image_size = 1024 #
+    net.class_net = HeadNet(config, num_outputs=config.num_classes, norm_kwargs=dict(eps=.001, momentum=.01))
+    net = DataParallel(net)
+    if resume:
+        checkpoint = torch.load(resume)
+        net.load_state_dict(checkpoint['model_state_dict'])
+    return DetBenchTrainMultiScale(net, config,multiscale=multiScale)
+
 
 def collate_fn(batch):
     return tuple(zip(*batch))
@@ -63,7 +80,8 @@ def get_k_fols(config):
 
     for fold_number, (train_index, val_index) in enumerate(skf.split(X=df_folds.index, y=df_folds['stratify_group'])):
         df_folds.loc[df_folds.iloc[val_index].index, 'fold'] = fold_number
-    return marking,df_folds
+    spike = pd.read_csv(config.csv.replace("train","train_spike_kaggle"))
+    return marking,df_folds,spike
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -82,7 +100,8 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
-        
+
+from apex import amp      
 
 
 class Fitter:
@@ -97,7 +116,7 @@ class Fitter:
         
         self.log_path = f'{self.base_dir}/log.txt'
         self.best_summary_loss = 0
-
+        self.grad_clip=0.1
         self.model = model
         self.ema = torch_utils.ModelEMA(model.model)
 
@@ -117,16 +136,24 @@ class Fitter:
                 else:
                     pg0.append(v)  # all else
         self.optimizer = config.optimizer(pg0, lr=config.lr, momentum=0.937, nesterov=True)
-#         self.optimizer = torch.optim.AdamW(pg0, lr=0.005)
+#         self.optimizer = config.optimizer(pg0, lr=config.lr)
         self.optimizer.add_param_group({'params': pg1, 'weight_decay': 5e-4})  # add pg1 with weight_decay
         self.optimizer.add_param_group({'params': pg2})  # add pg2 (biases)
         print('Optimizer groups: %g .bias, %g conv.weight, %g other' % (len(pg2), len(pg1), len(pg0)))
         del pg0, pg1, pg2
 #         self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.01, momentum=0.937, nesterov=True)
-        lf = lambda x: (((1 + math.cos(x * math.pi / 25)) / 2) ** 1.0) * 0.9 + 0.1  # cosine
-        self.scheduler = config.scheduler(self.optimizer, lr_lambda=lf)
-        self.scheduler.last_epoch = -1
-#         self.scheduler = config.SchedulerClass(self.optimizer, **config.scheduler_params)
+#         lf = lambda x: (((1 + math.cos(x * math.pi / 25)) / 2) ** 1.0) * 0.9 + 0.1  # cosine
+#         self.scheduler = config.scheduler(self.optimizer, lr_lambda=lf)
+#         self.scheduler.last_epoch = -1
+        self.scheduler = config.SchedulerClass(self.optimizer, **config.scheduler_params)
+        opt_level = 'O1'
+        for m in self.model.model.modules():
+            if isinstance(m, torch.nn.BatchNorm2d):
+                print(m)
+                m.eval()
+                m.weight.requires_grad = False
+                m.bias.requires_grad = False
+        self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level=opt_level)
 
     def fit(self, train_loader, validation_loader):
         for e in range(self.config.n_epochs):
@@ -169,7 +196,7 @@ class Fitter:
                 images = torch.stack(images)
                 batch_size = images.shape[0]
                 images = images.cuda().float()
-                det = self.model.predict(images, torch.tensor([1]*images.shape[0]).float().cuda())
+                det = self.model.predict(images, torch.tensor([1]*images.shape[0]).float().cuda(),self.ema)
                 for i in range(images.shape[0]):
                     boxes = det[i].detach().cpu().numpy()[:,:4]    
                     scores = det[i].detach().cpu().numpy()[:,4]
@@ -200,12 +227,15 @@ class Fitter:
         summary_loss = AverageMeter()
         t = time.time()
         self.optimizer.zero_grad()
+#         p_bar = tqdm(train_loader)
         for step, (images, targets, image_ids) in enumerate(train_loader):
             if self.config.verbose:
                 if step % self.config.verbose_step == 0:
+                    lr = self.optimizer.param_groups[0]['lr']
                     print(
                         f'Train Step {step}/{len(train_loader)}, ' + \
                         f'summary_loss: {summary_loss.avg:.5f}, ' + \
+                        f'lr: {lr:.5f}, ' + \
                         f'time: {(time.time() - t):.5f}', end='\r'
                     )
             
@@ -215,21 +245,23 @@ class Fitter:
             boxes = [target['boxes'].cuda().float() for target in targets]
             labels = [target['labels'].cuda().float() for target in targets]
             loss, _, _ = self.model(images, boxes, labels)
-#             scaler.scale(loss).backward()
-#             scaler.step(self.optimizer)
-#             scaler.update()
-            loss.backward()
+            loss = loss/float(self.config.grad_step)
+            with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                scaled_loss.backward()
+#             loss.backward()
             summary_loss.update(loss.detach().item(), batch_size)
-            self.optimizer.step()
-            self.optimizer.zero_grad()
-            self.ema.update(self.model.model)
-        self.scheduler.step()
+            if (step+1)%self.config.grad_step ==0:
+                self.optimizer.step()
+                self.optimizer.zero_grad()
+                self.ema.update(self.model.model)
+                self.scheduler.step()
         self.ema.update_attr(self.model.model)
         return summary_loss
     
     def save(self, path):
         self.model.eval()
         torch.save({
+            'ema_state_dict':self.ema.ema.state_dict(),
             'model_state_dict': self.model.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'scheduler_state_dict': self.scheduler.state_dict(),
