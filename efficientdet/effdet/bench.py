@@ -70,11 +70,9 @@ class DetBenchEvalMultiScale(nn.Module):
                 config.min_level, config.max_level,
                 config.num_scales, config.aspect_ratios,
                 config.anchor_scale, int(config.image_size*m)).cuda())
-        self.size = config.size
+        self.size = config.image_size
 
-    def forward(self, x, image_scales):
-        _,_,h,w = x.shape
-        scale = self.size/h
+    def forward(self, x, image_scales,scale):
         if scale not in self.multiscale:
             print("scale not in 0.5,0.625,0.75,0.875,1.0,1.125,1.25,1.375,1.5")
             return None
