@@ -116,7 +116,7 @@ class DetBenchTrainMultiScale(nn.Module):
         return self.loss_fn(class_out, box_out, cls_targets, box_targets, num_positives)
     
     
-    class DetBenchTrainMultiScaleV2(nn.Module):
+class DetBenchTrainMultiScaleV2(nn.Module):
     def __init__(self, model, config,multiscale=[1,1.1,0.9]):
         super(DetBenchTrainMultiScaleV2, self).__init__()
         print(config)
