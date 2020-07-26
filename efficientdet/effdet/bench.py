@@ -6,7 +6,19 @@ import torch
 import torch.nn as nn
 from .anchors import Anchors, AnchorLabeler, generate_detections, MAX_DETECTION_POINTS
 from .loss import DetectionLoss
+import torch.nn.functional as F
+import math
+import numpy as np
 
+def scale_img(img, ratio=1.0, same_shape=False):  # img(16,3,256,416), r=ratio
+    # scales img(bs,3,y,x) by ratio
+    h, w = img.shape[2:]
+    s = (int(h * ratio), int(w * ratio))  # new size
+    img = F.interpolate(img, size=s, mode='bilinear', align_corners=False)  # resize
+    if not same_shape:  # pad/crop img
+        gs = 32  # (pixels) grid size
+        h, w = [math.ceil(x * ratio / gs) * gs for x in (h, w)]
+    return F.pad(img, [0, w - s[1], 0, h - s[0]], value=0.447)  # value = imagenet mean
 
 def _post_process(config, cls_outputs, box_outputs):
     """Selects top-k predictions.
@@ -69,7 +81,53 @@ class DetBenchEval(nn.Module):
             batch_detections.append(detections)
         return torch.stack(batch_detections, dim=0)
 
+class DetBenchTrainMultiScale(nn.Module):
+    def __init__(self, model, config,multiscale=[1,1.1,0.9]):
+        super(DetBenchTrainMultiScale, self).__init__()
+        print(config)
+        self.config = config
+        self.model = model
+        self.multiscale = multiscale
+        self.anchors = []
+        self.anchor_labeler = []
+        for i,m in enumerate(multiscale):
+            self.anchors.append(Anchors(
+                config.min_level, config.max_level,
+                config.num_scales, config.aspect_ratios,
+                config.anchor_scale, int(config.image_size*m)).cuda())
+            self.anchor_labeler.append(AnchorLabeler(self.anchors[i], config.num_classes, match_threshold=0.5).cuda())
+        self.loss_fn = DetectionLoss(self.config)
 
+    def forward(self, x, gt_boxes, gt_labels):
+        s = np.random.randint(len(self.multiscale))
+        scale = self.multiscale[s]
+        x = scale_img(x,scale)
+        class_out, box_out = self.model(x)
+        cls_targets = []
+        box_targets = []
+        num_positives = []
+        # FIXME this may be a bottleneck, would be faster if batched, or should be done in loader/dataset?
+        for i in range(x.shape[0]):
+            gt_class_out, gt_box_out, num_positive = self.anchor_labeler[s].label_anchors(gt_boxes[i]/scale, gt_labels[i])
+            cls_targets.append(gt_class_out)
+            box_targets.append(gt_box_out)
+            num_positives.append(num_positive)
+
+        return self.loss_fn(class_out, box_out, cls_targets, box_targets, num_positives)
+    
+    def predict(self, x, image_scales,ema):
+        ema.ema.eval()
+        class_out, box_out = ema.ema(x)
+        class_out, box_out, indices, classes = _post_process(self.config, class_out, box_out)
+
+        batch_detections = []
+        # FIXME we may be able to do this as a batch with some tensor reshaping/indexing, PR welcome
+        for i in range(x.shape[0]):
+            detections = generate_detections(
+                class_out[i], box_out[i], self.anchors[0].boxes, indices[i], classes[i], image_scales[i])
+            batch_detections.append(detections)
+        return torch.stack(batch_detections, dim=0)
+    
 class DetBenchTrain(nn.Module):
     def __init__(self, model, config):
         super(DetBenchTrain, self).__init__()
@@ -108,3 +166,4 @@ class DetBenchTrain(nn.Module):
                 class_out[i], box_out[i], self.anchors.boxes, indices[i], classes[i], image_scales[i])
             batch_detections.append(detections)
         return torch.stack(batch_detections, dim=0)
+    
