@@ -39,7 +39,7 @@ class Config:
         )
     verbose = True
     verbose_step = 1
-    TrainMultiScale = [1.0,0.5,0.625,0.75,0.875] # The first place must be 1.0
+    TrainMultiScale = [1.0,1.125,1.25,0.75,0.875] # The first place must be 1.0
     net_name = 'tf_efficientdet_d7'
     checkpoint_name = '../efficientdet/tf_efficientdet_d7_53-6d1d7a95.pth'
     CocoFormat=False
