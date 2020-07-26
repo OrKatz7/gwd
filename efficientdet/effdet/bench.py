@@ -108,7 +108,42 @@ class DetBenchTrainMultiScale(nn.Module):
         num_positives = []
         # FIXME this may be a bottleneck, would be faster if batched, or should be done in loader/dataset?
         for i in range(x.shape[0]):
-            gt_class_out, gt_box_out, num_positive = self.anchor_labeler[s].label_anchors(gt_boxes[i]/scale, gt_labels[i])
+            gt_class_out, gt_box_out, num_positive = self.anchor_labeler[s].label_anchors(gt_boxes[i]*scale, gt_labels[i])
+            cls_targets.append(gt_class_out)
+            box_targets.append(gt_box_out)
+            num_positives.append(num_positive)
+
+        return self.loss_fn(class_out, box_out, cls_targets, box_targets, num_positives)
+    
+    
+    class DetBenchTrainMultiScaleV2(nn.Module):
+    def __init__(self, model, config,multiscale=[1,1.1,0.9]):
+        super(DetBenchTrainMultiScaleV2, self).__init__()
+        print(config)
+        self.config = config
+        self.model = model
+        self.multiscale = multiscale
+        self.anchors = []
+        self.anchor_labeler = []
+        self.anchors = Anchors(
+                config.min_level, config.max_level,
+                config.num_scales, config.aspect_ratios,
+                config.anchor_scale, int(config.image_size*m))
+        self.anchor_labeler = (AnchorLabeler(self.anchors[i], config.num_classes, match_threshold=0.5))
+        self.loss_fn = DetectionLoss(self.config)
+
+    def forward(self, x, gt_boxes, gt_labels):
+        s = np.random.randint(len(self.multiscale))
+        scale = self.multiscale[s]
+        x = scale_img(x,scale)
+        class_out, box_out = self.model(x)
+        box_out/=scale
+        cls_targets = []
+        box_targets = []
+        num_positives = []
+        # FIXME this may be a bottleneck, would be faster if batched, or should be done in loader/dataset?
+        for i in range(x.shape[0]):
+            gt_class_out, gt_box_out, num_positive = self.anchor_labeler.label_anchors(gt_boxes[i], gt_labels[i])
             cls_targets.append(gt_class_out)
             box_targets.append(gt_box_out)
             num_positives.append(num_positive)
