@@ -58,6 +58,37 @@ def _post_process(config, cls_outputs, box_outputs):
 
     return cls_outputs_all_after_topk, box_outputs_all_after_topk, indices_all, classes_all
 
+class DetBenchEvalMultiScale(nn.Module):
+    def __init__(self, model, config,multiscale=[]):
+        super(DetBenchEvalMultiScale, self).__init__()
+        self.config = config
+        self.model = model
+        self.multiscale = multiscale
+        self.anchors = []
+        for i,m in enumerate(multiscale):
+            self.anchors.append(Anchors(
+                config.min_level, config.max_level,
+                config.num_scales, config.aspect_ratios,
+                config.anchor_scale, int(config.image_size*m)).cuda())
+        self.size = config.size
+
+    def forward(self, x, image_scales):
+        _,_,h,w = x.shape
+        scale = self.size/h
+        if scale not in self.multiscale:
+            print("scale not in 0.5,0.625,0.75,0.875,1.0,1.125,1.25,1.375,1.5")
+            return None
+        s = np.where(np.array(self.multiscale)==scale)[0][0]
+        class_out, box_out = self.model(x)
+        class_out, box_out, indices, classes = _post_process(self.config, class_out, box_out)
+
+        batch_detections = []
+        # FIXME we may be able to do this as a batch with some tensor reshaping/indexing, PR welcome
+        for i in range(x.shape[0]):
+            detections = generate_detections(
+                class_out[i], box_out[i], self.anchors[s].boxes, indices[i], classes[i], image_scales[i])
+            batch_detections.append(detections)
+        return torch.stack(batch_detections, dim=0)
 
 class DetBenchEval(nn.Module):
     def __init__(self, model, config):
