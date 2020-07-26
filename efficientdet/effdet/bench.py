@@ -115,6 +115,19 @@ class DetBenchTrainMultiScale(nn.Module):
 
         return self.loss_fn(class_out, box_out, cls_targets, box_targets, num_positives)
     
+    def predict(self, x, image_scales,ema):
+        ema.ema.eval()
+        class_out, box_out = ema.ema(x)
+        class_out, box_out, indices, classes = _post_process(self.config, class_out, box_out)
+
+        batch_detections = []
+        # FIXME we may be able to do this as a batch with some tensor reshaping/indexing, PR welcome
+        for i in range(x.shape[0]):
+            detections = generate_detections(
+                class_out[i], box_out[i], self.anchors[0].boxes, indices[i], classes[i], image_scales[i])
+            batch_detections.append(detections)
+        return torch.stack(batch_detections, dim=0)
+    
     
 class DetBenchTrainMultiScaleV2(nn.Module):
     def __init__(self, model, config,multiscale=[1,1.1,0.9]):
