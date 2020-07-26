@@ -1,14 +1,9 @@
-
-
-import cv2
-import random
-import numpy as np
 import torch
-from torch.utils.data import Dataset
 import os
 from datetime import datetime
 import time
 import random
+import cv2
 import pandas as pd
 import numpy as np
 import albumentations as A
@@ -129,17 +124,23 @@ def get_train_transforms():
 def get_mosaic_transforms():
     return A.Compose(
         [
+            A.RandomSizedCrop(min_max_height=(1024, 1024), height=1024, width=1024, p=1.0),
             A.RandomRotate90(),
-            A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
+            A.OneOf([A.RandomGamma(),A.CLAHE()],p=0.5),
+            A.OneOf([A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
+                     A.RGBShift(r_shift_limit=15, g_shift_limit=15, b_shift_limit=15)]
+                    ,p=0.5),
+            A.OneOf([A.Blur(),A.MotionBlur(),A.ImageCompression(quality_lower=75)],p=0.5),
             A.HorizontalFlip(p=0.5),
             A.VerticalFlip(p=0.5),
+#             A.RandomSizedBBoxSafeCrop(num_rate=(0.5, 1.0), erosion_rate=0.2),
             A.Resize(height=1024, width=1024, p=1),
         ], 
         p=1.0, 
         bbox_params=A.BboxParams(
             format='pascal_voc',
             min_area=0, 
-            min_visibility=0.0,
+            min_visibility=0,
             label_fields=['labels']
         )
     )
@@ -162,7 +163,6 @@ def get_valid_transforms():
 
 def collate_fn(batch):
     return tuple(zip(*batch))
-
 
 class DatasetRetrieverTest(Dataset):
 
@@ -209,29 +209,33 @@ class DatasetRetrieverTest(Dataset):
         boxes[:, 3] = boxes[:, 1] + boxes[:, 3]
         return image, boxes
 
-
-
+import cv2
+import random
+import numpy as np
+import torch
+from torch.utils.data import Dataset
 
 class train_wheat(Dataset):
 
-    def __init__(self, marking, image_ids, transforms=None, test=False,TRAIN_ROOT_PATH='../data/train'):
-        super().__init__()
+    def __init__(self, marking, image_ids,data_config, transforms=None, test=False,TRAIN_ROOT_PATH='../data/train'):
+#         super().__init__()
         self.root = TRAIN_ROOT_PATH
         self.image_ids = image_ids
         self.marking = marking
         self.transforms = transforms
         self.test = test
         self.mosaic_transform = get_mosaic_transforms()
+        self.data_config = data_config
 
     def __getitem__(self, index: int):
         image_id = self.image_ids[index]
         p_ratio = random.random()
-        if self.test or p_ratio > 0.7:
+        if self.test or p_ratio > self.data_config.real:
             image, boxes = self.load_image_and_boxes(index)
         else:
-            if p_ratio > 0.4:
+            if p_ratio > self.data_config.mosaic:
                 image, boxes = self.load_mosaic_image_and_boxes(index)
-            elif p_ratio > 0.15:
+            elif p_ratio > self.data_config.cutmix:
                 image, boxes = self.load_image_and_bboxes_with_cutmix(index)
             else:
                 image, boxes = self.load_mixup_image_and_boxes(index)
@@ -254,20 +258,34 @@ class train_wheat(Dataset):
 
 
         if self.transforms:
-
-            sample = self.transforms(**{'image': image,'bboxes': target['boxes'],'labels': labels})
-            image = sample['image']
-            target['boxes'] = torch.stack(tuple(map(torch.tensor, zip(*sample['bboxes'])))).permute(1, 0)
-            target['boxes'][:,[0,1,2,3]] = target['boxes'][:,[1,0,3,2]]  #yxyx: be warning
+            for i in range(10):
+                sample = self.transforms(**{
+                    'image': image,
+                    'bboxes': target['boxes'],
+                    'labels': labels
+                })
+                if len(sample['bboxes']) > 0:
+                    image = sample['image']
+                    target['boxes'] = torch.stack(tuple(map(torch.tensor, zip(*sample['bboxes'])))).permute(1, 0)
+                    target['boxes'][:,[0,1,2,3]] = target['boxes'][:,[1,0,3,2]]  #yxyx: be warning
+                    break
+                    
         return image, target, image_id
 
     def __len__(self) -> int:
-        return self.image_ids.shape[0]
+        return int(self.image_ids.shape[0])
 
     def load_image_and_boxes(self, index):
         image_id = self.image_ids[index]
-        image = cv2.imread(f'{self.root}/{image_id}.jpg', cv2.IMREAD_COLOR)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32)/255
+        if random.random()<self.data_config.stylized:
+            root = self.root.replace("train","stylized_images_v{}".format(np.random.randint(3)))
+        else:
+            root = self.root
+        if not os.path.exists(f'{root}/{image_id}.jpg'):
+            root = self.root
+        image = cv2.imread(f'{root}/{image_id}.jpg', cv2.IMREAD_COLOR)
+#         print(f'{root}/{image_id}.jpg')
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         records = self.marking[self.marking['image_id'] == image_id]
         boxes = records[['x', 'y', 'w', 'h']].values
         boxes[:, 2] = boxes[:, 0] + boxes[:, 2]
@@ -279,7 +297,7 @@ class train_wheat(Dataset):
                         'bboxes': boxes,
                         'labels': labels
                     })
-            image = sample['image']*255
+            image = sample['image'].astype(np.float32)
             boxes = torch.stack(tuple(map(torch.tensor, zip(*sample['bboxes'])))).permute(1, 0).numpy()
         return image, boxes
 
