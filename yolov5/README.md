@@ -1,5 +1,5 @@
 
-# Data:
+# Data
 ```bash
 $ kaggle competitions download -c global-wheat-detection
 ```
@@ -7,14 +7,14 @@ $ kaggle competitions download -c global-wheat-detection
 
 ../train
 
-# step1:
+# step1
 ```bash
 $ python convert.py
 ```
 python convert.py
 
 
-# train:
+# train
 ```bash
 $ CUDA_VISIBLE_DEVICES=0 python3 train.py --img 1024 --batch 4 --epochs 100 --data ./data/w0.yaml --cfg ./models/yolov5x.yaml --name yolov5x_fold0_1024 --weights ./yolov5x.pt
 ```
