@@ -18,6 +18,8 @@ python convert.py
 ```bash
 $ CUDA_VISIBLE_DEVICES=0 python3 train.py --img 1024 --batch 4 --epochs 100 --data ./data/w0.yaml --cfg ./models/yolov5x.yaml --name yolov5x_fold0_1024 --weights ./yolov5x.pt
 ```
+# Inference
+https://www.kaggle.com/orkatz2/yolov5-fake-or-real-single-model-l-b-0-753
 
 # based on:
 https://github.com/ultralytics/yolov5
