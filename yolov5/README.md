@@ -2,9 +2,7 @@
 # Data
 ```bash
 $ kaggle competitions download -c global-wheat-detection
-```
-```
-          
+     
 ├── data  
 │   ├── train.csv      
 │   ├── train
@@ -13,6 +11,7 @@ $ kaggle competitions download -c global-wheat-detection
 │   ├── train.py           
 │   ├── test.py       
 .....
+```
 
 # step1
 ```bash
