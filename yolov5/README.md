@@ -1,6 +1,8 @@
 
 # Data:
-
+```bash
+$ kaggle competitions download -c global-wheat-detection
+```
 ../trian.csv
 
 ../train
