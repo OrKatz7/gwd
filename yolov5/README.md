@@ -3,9 +3,16 @@
 ```bash
 $ kaggle competitions download -c global-wheat-detection
 ```
-../trian.csv
-
-../train
+```
+          
+├── data  
+│   ├── train.csv      
+│   ├── train
+│   ├── test
+├── yolov5
+│   ├── train.py           
+│   ├── test.py       
+.....
 
 # step1
 ```bash
